@@ -1,16 +1,15 @@
-import { useCallback, useEffect, useState, useReducer } from "react";
+import { useCallback, useEffect, useState, useReducer, useRef } from "react";
 import useAsyncAction from "./useAsyncActions";
-import { act } from "react-dom/test-utils";
+import isEqual from 'lodash/isEqual';
 
 const initialState = {
     users: [],
-    pageNo: 0,
-    pageSize : 10,
+    pageNo: -1,
 };
 
 const FetchUserActionType = {
   MORE_USERS: 'MORE_USERS',
-  Reset: 'RESET',
+  RESET: 'RESET',
 };
 
 function reducer(state, action) {
@@ -18,10 +17,9 @@ function reducer(state, action) {
       case FetchUserActionType.MORE_USERS:
         return {
           users: [...state.users, ...action.data],
-          pageNo: state.pageNo + 1,
-          pageSize: state.pageSize,
+          pageNo: action.pageNo,
         };
-      case FetchUserActionType.Reset:
+      case FetchUserActionType.RESET:
         return {
           ...initialState
         };
@@ -31,48 +29,49 @@ function reducer(state, action) {
   }
   
 
-export default function useFetchUsers() {
+export default function useFetchUsers( filters, pageSize = 10 ) {
+ 
+  const filterRef = useRef(null);
   const [state, dispatch] = useReducer(reducer, initialState);
 
   const [fetchUsers, loading, { error }] = useAsyncAction(
-      useCallback(async (pageNo, pageSize, search) => {
-          const response = await fetch(
-              `https://api.slingacademy.com/v1/sample-data/users?offset=${pageNo*pageSize}&limit=${pageSize}&search=${search}`
-          );
-          const data = await response.json();
-          return data.users;
-      }, [state.pageNo]),
-      useCallback(
-          (data) => {
-            dispatch({
-              type: FetchUserActionType.MORE_USERS,
-              data,
-            });
-          }, [])
-        );
+    useCallback(async (filters, pageNo) => {
+      const response = await fetch(
+          `https://api.slingacademy.com/v1/sample-data/users?offset=${pageNo*pageSize}&limit=${pageSize}&search=${filters}`
+      );
+      const data = await response.json();
+      return data.users;
+    }, [state.pageNo]),
+    useCallback(
+      (data, [,pageNo]) => {
+        dispatch({
+          type: FetchUserActionType.MORE_USERS,
+          data,
+          pageNo,
+        });
+      }, []
+    )
+  );
 
-  const loadMore = useCallback((search) => {
-    fetchUsers(state.pageNo, state.pageSize , search);
-  }, [state.pageNo]);
+  useEffect(() => {
+    if (!isEqual(filterRef.current, filters)) {
+      if (!isEqual(state, initialState)) {
+        dispatch({
+          type: FetchUserActionType.RESET
+        });
+      }
+      fetchUsers(filters, 0);
+      filterRef.current = filters;
+    }
+  }, [fetchUsers, filters, state]);
   
-  const filterUsers = useCallback((search) => {
-    dispatch({
-      type: FetchUserActionType.Reset,
-    })
-    fetchUsers(0, state.pageSize, search);
+
+  const loadMore = useCallback(() => {
+    fetchUsers(filters, state.pageNo + 1);
   }, [state.pageNo]);
 
-  const resetUsers = useCallback(() => {
-    dispatch({
-      type: FetchUserActionType.Reset,
-    })
-    fetchUsers(0, state.pageSize, "");
-  })
-        
   return [
     state.users,
     loadMore,
-    filterUsers,
-    resetUsers
   ];
 }
